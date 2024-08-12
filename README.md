@@ -1,13 +1,7 @@
-# librime-cloud: RIME 云输入插件
+# rime-cloud-input: RIME 云输入插件, 纯lua实现
 
-## 获取
-  免责声明：下述二进制文件是使用 GitHub CI，引用公开获取的源代码和二进制程序自动生成的，仅供参考。
-  请了解运行未知来源二进制文件的风险。使用下述文件造成的后果请您自行承担，制作者不承担任何责任。
-
-  [GitHub Release](https://github.com/hchunhui/librime-cloud/releases)
-
-  您也可以从 https://github.com/hchunhui/librime-cloud 获取编译脚本，从源码编译。
-
+## 说明
+1. 这个是rime输入法的云输入插件，云输入请求使用纯lua实现，不再依赖curl
 ## 安装
   1. 编译或获取压缩包
   2. 解压
