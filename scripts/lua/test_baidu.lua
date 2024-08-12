@@ -4,7 +4,7 @@ local json = require("json")
 
 
 local function make_url(input, bg, ed)
-    return 'https://olime.baidu.com/py?input=' .. input ..
+    return 'http://olime.baidu.com/py?input=' .. input ..
        '&inputtype=py&bg='.. bg .. '&ed='.. ed ..
        '&result=hanzi&resultcoding=utf-8&ch_en=0&clientinfo=web&version=1'
  end

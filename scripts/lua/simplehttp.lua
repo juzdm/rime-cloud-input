@@ -1,22 +1,22 @@
 local socket = require("socket")
-local ssl = require("ssl")
+-- local ssl = require("ssl")
 
 local simplehttp = {}
 
 simplehttp.TIMEOUT = 5 -- 将超时时间延长到 5 秒
 
-local function create_ssl_connection(sock, host)
-    local params = {
-        mode = "client",
-        protocol = "tlsv1_2",
-        verify = "none", -- 如果需要验证服务器证书，请设置为 "peer"
-        options = "all",
-    }
-    sock = ssl.wrap(sock, params)
-    sock:sni(host)
-    sock:dohandshake()
-    return sock
-end
+-- local function create_ssl_connection(sock, host)
+--     local params = {
+--         mode = "client",
+--         protocol = "tlsv1_2",
+--         verify = "none", -- 如果需要验证服务器证书，请设置为 "peer"
+--         options = "all",
+--     }
+--     sock = ssl.wrap(sock, params)
+--     sock:sni(host)
+--     sock:dohandshake()
+--     return sock
+-- end
 
 local function parse_url(url_str)
     local scheme, rest = url_str:match("^(.-)://(.+)$")
@@ -199,14 +199,6 @@ local function request(url_str, method, headers, body)
     local res, err = sock:connect(host, port)
     if not res then
         return nil, "Error connecting to server: " .. err
-    end
-
-    -- 如果是 HTTPS，使用 SSL/TLS 连接
-    if parsed_url.scheme == "https" then
-        sock, err = create_ssl_connection(sock, host)
-        if err then
-            return nil, "Error creating SSL connection: " .. err
-        end
     end
 
     -- 构建并发送 HTTP 请求
