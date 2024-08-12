@@ -1,23 +1,8 @@
-local socket = require("socket")
--- local ssl = require("ssl")
-
 local simplehttp = {}
 
-simplehttp.TIMEOUT = 5 -- 将超时时间延长到 5 秒
+simplehttp.TIMEOUT = 5 -- 设置超时时间（这里实际无效，因为 io.popen 不支持超时设置）
 
--- local function create_ssl_connection(sock, host)
---     local params = {
---         mode = "client",
---         protocol = "tlsv1_2",
---         verify = "none", -- 如果需要验证服务器证书，请设置为 "peer"
---         options = "all",
---     }
---     sock = ssl.wrap(sock, params)
---     sock:sni(host)
---     sock:dohandshake()
---     return sock
--- end
-
+-- 解析 URL 的函数
 local function parse_url(url_str)
     local scheme, rest = url_str:match("^(.-)://(.+)$")
     if not scheme then
@@ -50,6 +35,7 @@ local function parse_url(url_str)
     }
 end
 
+-- 构建 HTTP 请求的函数
 local function create_request(method, host, path, headers, body)
     local request = method .. " " .. path .. " HTTP/1.1\r\n"
     request = request .. "Host: " .. host .. "\r\n"
@@ -76,146 +62,48 @@ local function create_request(method, host, path, headers, body)
     return request
 end
 
-local function receive_response(sock)
-    local response_headers = {}
-    local response_body = {}
+-- 使用 curl 执行 HTTP 请求并读取响应
+local function http_request(url, method, headers, body)
+    local request = create_request(method, url.host, url.path .. (url.query and "?" .. url.query or ""), headers, body)
+    local cmd = string.format("CURL_HOME=/dev/null curl --config /dev/null -s -K -q -i -X %s '%s'", method, url.scheme .. "://" .. url.host .. (url.port and ":" .. url.port or "") .. url.path .. (url.query and "?" .. url.query or ""))
+    
+    -- 使用 io.popen 执行 curl 命令
+    local handle = io.popen(cmd)
+    local response = handle:read("*a")
+    handle:close()
+    
+    -- 处理 curl 输出中的前缀
+    response = response:gsub("^#011 reply=#011", "")
 
-    -- 读取响应头
-    local response_header_string = ""
-    while true do
-        local line, err = sock:receive("*l")
-        if err then
-            return nil, "Error receiving header line: " .. err
-        end
-        if line == "" then -- 空行标志头部结束
-            break
-        end
-        response_header_string = response_header_string .. line .. "\r\n"
-    end
-
-    -- 打印响应头部以便调试
-    print("Response Headers:\n" .. response_header_string)
-
-    -- 解析响应头
-    for line in response_header_string:gmatch("[^\r\n]+") do
-        local key, value = line:match("^(.-):%s*(.*)")
-        if key and value then
-            response_headers[key] = value
-        elseif line:match("^HTTP/%d+%.%d+%s+(%d+)%s+(.*)") then
-            local status_code = line:match("^HTTP/%d+%.%d+%s+(%d+)%s+(.*)")
-            response_headers.status = tonumber(status_code)
-        end
-    end
-
-    -- 读取响应体
-    if response_headers["Transfer-Encoding"] == "chunked" then
-        while true do
-            local size_line, err = sock:receive("*l")
-            if err then
-                return nil, "Error receiving chunk size: " .. err
-            end
-            local chunk_size = tonumber(size_line:gsub("%s+", ""), 16)
-            if not chunk_size then
-                return nil, "Invalid chunk size: " .. (size_line or "nil")
-            end
-            if chunk_size == 0 then break end
-            local chunk, err = sock:receive(chunk_size)
-            if err then
-                return nil, "Error receiving chunk data: " .. err
-            end
-            table.insert(response_body, chunk)
-            sock:receive(2) -- 跳过 \r\n
-        end
-    else
-        local content_length = response_headers["Content-Length"]
-        if content_length then
-            local content_length_num = tonumber(content_length:match("%d+"))
-            if content_length_num then
-                local remaining = content_length_num
-                while remaining > 0 do
-                    local chunk = sock:receive(math.min(remaining, 8192))
-                    if not chunk then
-                        return nil, "Failed to read body"
-                    end
-                    table.insert(response_body, chunk)
-                    remaining = remaining - #chunk
-                end
-            else
-                print("Content-Length is not a valid number:", content_length)
-                while true do
-                    local chunk, err = sock:receive("*a")
-                    if not chunk then
-                        return nil, "Error receiving body: " .. err
-                    end
-                    if chunk == "" then break end
-                    table.insert(response_body, chunk)
-                end
-            end
-        else
-            while true do
-                local chunk, err = sock:receive("*a")
-                if not chunk then
-                    return nil, "Error receiving body: " .. err
-                end
-                if chunk == "" then break end
-                table.insert(response_body, chunk)
-            end
-        end
-    end
-
-    local body = table.concat(response_body)
-
-    return body, response_headers.status, response_headers
+    return response
 end
 
+-- 解析响应头和响应体
+local function parse_response(response)
+    local header_end = response:find("\r\n\r\n")
+    if not header_end then
+        return nil, "Invalid response format"
+    end
+
+    local headers = response:sub(1, header_end - 1)
+    local body = response:sub(header_end + 4)
+    return headers, body
+end
+
+-- 发送 HTTP 请求的主函数
 local function request(url_str, method, headers, body)
-    local parsed_url, err = parse_url(url_str)
+    local parsed_url = parse_url(url_str)
     if not parsed_url then
-        return nil, err
+        return nil, "Invalid URL"
     end
-
-    local host = parsed_url.host
-    local port = parsed_url.port
-    local path = parsed_url.path or "/"
-    if parsed_url.query then
-        path = path .. "?" .. parsed_url.query
-    end
-
-    -- 打印请求 URL 进行调试
-    print("Request URL: " .. path)
 
     method = method or "GET"
     headers = headers or {}
-
-    -- 创建 socket 连接
-    local sock, err = socket.tcp()
-    if not sock then
-        return nil, "Error creating socket: " .. err
-    end
-
-    sock:settimeout(simplehttp.TIMEOUT)
-
-    -- 连接到服务器
-    local res, err = sock:connect(host, port)
-    if not res then
-        return nil, "Error connecting to server: " .. err
-    end
-
-    -- 构建并发送 HTTP 请求
-    local req = create_request(method, host, path, headers, body)
-    print("Request sent:\n" .. req)  -- 打印请求内容进行调试
-    local _, err = sock:send(req)
-    if err then
-        return nil, "Error sending request: " .. err
-    end
-
-    -- 接收 HTTP 响应
-    local body, status, response_headers = receive_response(sock)
-
-    -- 关闭连接
-    sock:close()
-
-    return body, status, response_headers
+    
+    local response = http_request(parsed_url, method, headers, body)
+    local headers, body = parse_response(response)
+    
+    return body, headers
 end
 
 function simplehttp.request(url_str, options)
